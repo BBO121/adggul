@@ -96,9 +96,6 @@ let visibleWeekRange = (() => {
 })();
 function saveWeekRange() { localStorage.setItem('weekRange', JSON.stringify(visibleWeekRange)); }
 
-let showWeekRangeBtns = localStorage.getItem('showWeekRangeBtns') !== 'false';
-function saveShowWeekRangeBtns() { localStorage.setItem('showWeekRangeBtns', showWeekRangeBtns); }
-
 const SUBJECTS = {
   wireless:    { label: '📡 무선공학', cls: 'wireless' },
   electronics: { label: '⚡ 전자공학', cls: 'electronics' },
@@ -111,21 +108,6 @@ const CUSTOM_COLORS = [
   '#f87171', '#facc15', '#4ade80',
   '#f472b6', '#2dd4bf', '#a3e635', '#e879f9',
 ];
-
-const DEFAULT_SUBJECT_COLORS = { wireless: '#38bdf8', electronics: '#fb923c', comms: '#a78bfa' };
-
-function parseSubjectLabel(label) {
-  const m = label.match(/^(\S+)\s+(.+)$/);
-  return m ? { emoji: m[1], text: m[2] } : { emoji: '', text: label };
-}
-
-function getSubjectColor(key) {
-  const colorOverrides = userSettings.customSubjects.colorOverrides || {};
-  if (colorOverrides[key]) return colorOverrides[key];
-  if (DEFAULT_SUBJECT_COLORS[key]) return DEFAULT_SUBJECT_COLORS[key];
-  const ex = (userSettings.customSubjects.extras || []).find(e => e.key === key);
-  return ex?.color || '#94a3b8';
-}
 
 const DEFAULT_COURSES = [
   { subject:'electronics', name:'전자공학', week:1, status:'default', progress:'1강',  duration:'31분',       startDate:'2026-05-11', endDate:'2026-05-17' },
@@ -277,7 +259,6 @@ function toDbRow(course, userId) {
     start_date: course.startDate || null,
     end_date:   course.endDate   || null,
     color:      course.color     || null,
-    memo:       course.memo      || null,
   };
 }
 
@@ -293,7 +274,6 @@ function fromDbRow(row) {
     startDate: row.start_date || '',
     endDate:   row.end_date   || '',
     color:     row.color      || null,
-    memo:      row.memo       || '',
   };
 }
 
@@ -453,13 +433,20 @@ function statusBadge(status) {
   return `<span class="badge ${cls}">${label}</span>`;
 }
 
-function subjectBadge(subject, color) {
-  const info = computeUserSubjects()[subject] || SUBJECTS[subject];
-  if (info && SUBJECTS[subject]) return `<span class="subject-badge subject-badge--${SUBJECTS[subject].cls}">${info.label}</span>`;
-  if (info) {
-    const c = info.color || color || '#94a3b8';
-    return `<span class="subject-badge" style="background:${c}26;color:${c};border:1px solid ${c}4d">${esc(info.label)}</span>`;
+function parseSubjectEmoji(str) {
+  if (!str) return { emoji: '📚', text: '' };
+  const chars = [...str];
+  const first = chars[0];
+  if (first.codePointAt(0) > 0x2000 && str.includes(' ')) {
+    const spaceIdx = str.indexOf(' ');
+    return { emoji: first, text: str.slice(spaceIdx + 1) };
   }
+  return { emoji: '📚', text: str };
+}
+
+function subjectBadge(subject, color) {
+  const info = SUBJECTS[subject];
+  if (info) return `<span class="subject-badge subject-badge--${info.cls}">${info.label}</span>`;
   const c = color || '#94a3b8';
   return `<span class="subject-badge" style="background:${c}26;color:${c};border:1px solid ${c}4d">${esc(subject)}</span>`;
 }
@@ -487,26 +474,20 @@ function renderWeekTabs(scrollHint = 'active') {
   const from = Math.max(1, visibleWeekRange.from);
   const to   = Math.min(24, visibleWeekRange.to);
 
-  // 전체 버튼 active 상태 동기화
-  const allBtn = $('week-all-btn');
-  if (allBtn) allBtn.classList.toggle('active', activeWeek === 0);
-
-  // - 버튼
-  if (showWeekRangeBtns) {
-    const subBtn = document.createElement('button');
-    subBtn.className = 'week-add-btn';
-    subBtn.title = `${from}주차 숨기기`;
-    subBtn.textContent = '−';
-    subBtn.disabled = from >= to;
-    subBtn.addEventListener('click', () => {
-      if (visibleWeekRange.from >= visibleWeekRange.to) return;
-      visibleWeekRange.from = visibleWeekRange.from + 1;
-      if (activeWeek < visibleWeekRange.from) { activeWeek = visibleWeekRange.from; }
-      saveWeekRange();
-      renderWeekTabs('start');
-    });
-    nav.appendChild(subBtn);
-  }
+  // - 버튼: 항상 표시, 맨 왼쪽 주차를 제거
+  const subBtn = document.createElement('button');
+  subBtn.className = 'week-add-btn';
+  subBtn.title = `${from}주차 숨기기`;
+  subBtn.textContent = '−';
+  subBtn.disabled = from >= to;
+  subBtn.addEventListener('click', () => {
+    if (visibleWeekRange.from >= visibleWeekRange.to) return;
+    visibleWeekRange.from = visibleWeekRange.from + 1;
+    if (activeWeek < visibleWeekRange.from) { activeWeek = visibleWeekRange.from; }
+    saveWeekRange();
+    renderWeekTabs('start');
+  });
+  nav.appendChild(subBtn);
 
   WEEKS.filter(w => w >= from && w <= to).forEach(week => {
     const count = courses.filter(c =>
@@ -519,8 +500,8 @@ function renderWeekTabs(scrollHint = 'active') {
     nav.appendChild(btn);
   });
 
-  // + 버튼
-  if (showWeekRangeBtns && to < 24) {
+  // + 버튼: 끝 주차가 24 미만일 때 표시
+  if (to < 24) {
     const addBtn = document.createElement('button');
     addBtn.className = 'week-add-btn';
     addBtn.title = `${to + 1}주차 표시`;
@@ -550,8 +531,7 @@ function renderTableRows() {
   const emptyState = $('empty-state');
   const table      = $('schedule-table');
 
-  const isAllView = activeWeek === 0;
-  let list = isAllView ? [...courses] : courses.filter(c => c.week === activeWeek);
+  let list = courses.filter(c => c.week === activeWeek);
   if (activeSubject !== 'all') list = list.filter(c => c.subject === activeSubject);
 
   const SUBJECT_ORDER = { electronics: 0, comms: 1, wireless: 2 };
@@ -559,8 +539,8 @@ function renderTableRows() {
     const sa = SUBJECT_ORDER[a.subject] ?? 99;
     const sb = SUBJECT_ORDER[b.subject] ?? 99;
     if (sa !== sb) return sa - sb;
+    // 커스텀 과목끼리는 과목명으로 묶기
     if (sa === 99 && a.subject !== b.subject) return a.subject.localeCompare(b.subject, 'ko');
-    if (isAllView && a.week !== b.week) return a.week - b.week;
     const ap = parseInt(a.progress) || 9999;
     const bp = parseInt(b.progress) || 9999;
     return ap - bp;
@@ -576,73 +556,26 @@ function renderTableRows() {
   table.style.display = '';
   emptyState.classList.remove('visible');
 
-  // 테이블 헤더 두 번째 컬럼 변경
-  const thSubject = table.querySelector('thead th:nth-child(2)');
-  if (thSubject) thSubject.textContent = isAllView ? '주차' : '과목';
-
-  let rowsHtml = '';
-  function courseRow(course, subjectCell) {
+  tbody.innerHTML = list.map(course => {
     const isDone = course.status === 'done';
-    const hasMemo = !!course.memo;
-    return `<tr class="row--${course.subject||''} ${isDone ? 'row--done' : ''}" data-id="${course.id}">
+    return `<tr class="row--${course.subject||''} ${isDone ? 'row--done' : ''}">
       <td><button class="check-btn ${isDone ? 'checked' : ''}" data-check="${course.id}" title="완료 토글">✔</button></td>
-      <td>${subjectCell}</td>
+      <td>${subjectBadge(course.subject, course.color)}</td>
       <td class="col-name">${esc(course.name)}</td>
-      <td class="col-progress">${esc(course.progress)||'-'}</td>
+      <td class="col-progress">${esc(course.progress)||'-'}<span class="mob-duration">${course.duration ? ' / ' + esc(course.duration) : ''}</span></td>
       <td class="col-duration">${esc(course.duration)||'-'}</td>
       <td class="col-deadline">${periodLabel(course.startDate, course.endDate)}</td>
       <td>${statusBadge(course.status)}</td>
       <td>
-        <button class="btn btn--icon ${hasMemo ? 'btn--memo-on' : ''}" data-memo="${course.id}" title="메모">📝</button>
         <button class="btn btn--icon" data-edit="${course.id}" title="수정">✏️</button>
         <button class="btn btn--icon btn--delay" data-delay="${course.id}" title="1주 밀기">➡️</button>
         <button class="btn btn--icon" data-del="${course.id}" title="삭제">🗑</button>
       </td>
-    </tr>
-    <tr class="memo-row" id="memo-row-${course.id}" style="display:none">
-      <td colspan="8">
-        <div class="memo-expand">
-          <textarea class="memo-textarea" id="memo-ta-${course.id}" placeholder="메모를 입력하세요...">${esc(course.memo||'')}</textarea>
-          <div class="memo-footer">
-            <span class="memo-status" id="memo-status-${course.id}"></span>
-            <button class="btn btn--ghost btn--sm" data-memo-close="${course.id}">닫기</button>
-            <button class="btn btn--primary btn--sm" data-memo-save="${course.id}">저장</button>
-          </div>
-        </div>
-      </td>
     </tr>`;
-  }
-
-  if (isAllView) {
-    const groups = {};
-    const groupOrder = [];
-    list.forEach(c => {
-      if (!groups[c.subject]) { groups[c.subject] = []; groupOrder.push(c.subject); }
-      groups[c.subject].push(c);
-    });
-    groupOrder.forEach(subject => {
-      const items = groups[subject];
-      rowsHtml += `<tr class="subject-group-header"><td colspan="8">${subjectBadge(subject, items[0].color)}</td></tr>`;
-      rowsHtml += items.map(c =>
-        courseRow(c, `<span class="badge badge--default" style="font-size:0.75rem">${c.week}주차</span>`)
-      ).join('');
-    });
-  } else {
-    rowsHtml = list.map(c => courseRow(c, subjectBadge(c.subject, c.color))).join('');
-  }
-  tbody.innerHTML = rowsHtml;
+  }).join('');
 
   tbody.querySelectorAll('[data-check]').forEach(btn =>
     btn.addEventListener('click', () => toggleDone(btn.dataset.check))
-  );
-  tbody.querySelectorAll('[data-memo]').forEach(btn =>
-    btn.addEventListener('click', () => toggleMemoRow(btn.dataset.memo))
-  );
-  tbody.querySelectorAll('[data-memo-save]').forEach(btn =>
-    btn.addEventListener('click', () => saveMemo(btn.dataset.memoSave))
-  );
-  tbody.querySelectorAll('[data-memo-close]').forEach(btn =>
-    btn.addEventListener('click', () => toggleMemoRow(btn.dataset.memoClose))
   );
   tbody.querySelectorAll('[data-edit]').forEach(btn =>
     btn.addEventListener('click', () => openModal(btn.dataset.edit))
@@ -660,30 +593,6 @@ function renderSchedule() {
   updateSummary();
   renderWeekTabs();
   renderTableRows();
-}
-
-function toggleMemoRow(id) {
-  const row = $(`memo-row-${id}`);
-  if (!row) return;
-  const isOpen = row.style.display !== 'none';
-  row.style.display = isOpen ? 'none' : '';
-  if (!isOpen) $(`memo-ta-${id}`)?.focus();
-}
-
-async function saveMemo(id) {
-  const course = courses.find(c => c.id === id);
-  if (!course) return;
-  const ta     = $(`memo-ta-${id}`);
-  const status = $(`memo-status-${id}`);
-  if (!ta) return;
-  course.memo = ta.value.trim();
-  if (status) { status.textContent = '저장 중...'; status.style.color = 'var(--muted)'; }
-  await saveCourse(course);
-  if (status) { status.textContent = '저장됐어요!'; status.style.color = 'var(--done)'; }
-  // 메모 버튼 아이콘 갱신
-  const memoBtn = document.querySelector(`[data-memo="${id}"]`);
-  if (memoBtn) memoBtn.classList.toggle('btn--memo-on', !!course.memo);
-  setTimeout(() => { if (status) status.textContent = ''; }, 2000);
 }
 
 async function toggleDone(id) {
@@ -774,9 +683,9 @@ function buildEventBars(weekCourses, weekStart, weekEnd) {
   const weekStartStr = fmtDate(weekStart);
   const weekEndStr   = fmtDate(weekEnd);
   return Object.entries(bySubject).map(([subject, info], idx) => {
-    const subjectInfo = computeUserSubjects()[subject] || SUBJECTS[subject];
-    const rawLabel = subjectInfo ? subjectInfo.label : subject;
-    const { emoji: icon, text: name } = parseSubjectLabel(rawLabel);
+    const subjectInfo = SUBJECTS[subject];
+    const icon    = subjectInfo ? subjectInfo.label.split(' ')[0] : '';
+    const name    = subjectInfo ? subjectInfo.label.split(' ').slice(1).join(' ') : subject;
     const allDone = info.done === info.total;
     const countLabel = Array.from({ length: info.total }, (_, i) => i < info.done ? '👏' : '◻️').join('');
     const isFirstWeek = !info.minStart || info.minStart >= weekStartStr;
@@ -854,21 +763,16 @@ function renderCalendar() {
   const legend = $('cal-legend');
   legend.querySelectorAll('.cal-legend__item--custom').forEach(el => el.remove());
   const customSeen = {};
-  const userSubjects = computeUserSubjects();
   courses.forEach(c => {
     if (!SUBJECTS[c.subject] && c.subject && !customSeen[c.subject]) {
-      const info = userSubjects[c.subject];
-      customSeen[c.subject] = {
-        label: info ? info.label : c.subject,
-        color: info?.color || c.color || '#94a3b8',
-      };
+      customSeen[c.subject] = c.color || '#94a3b8';
     }
   });
-  Object.values(customSeen).forEach(({ label, color }) => {
+  Object.entries(customSeen).forEach(([subject, color]) => {
     const span = document.createElement('span');
     span.className = 'cal-legend__item cal-legend__item--custom';
     span.style.color = color;
-    span.textContent = label;
+    span.textContent = subject;
     legend.appendChild(span);
   });
 }
@@ -1066,9 +970,15 @@ function openModal(editId = null) {
     $('f-name').value     = course.name;
     const isCustom = !SUBJECTS[course.subject];
     $('f-subject').value  = isCustom ? 'custom' : (course.subject || 'wireless');
-    $('f-custom-subject').value = isCustom ? course.subject : '';
     $('custom-subject-group').style.display = isCustom ? '' : 'none';
-    if (isCustom) resetColorSwatches(course.color || CUSTOM_COLORS[0]);
+    if (isCustom) {
+      const { emoji, text } = parseSubjectEmoji(course.subject);
+      $('f-emoji-pick-btn').textContent = emoji;
+      $('f-custom-subject').value = text;
+      resetColorSwatches(course.color || CUSTOM_COLORS[0]);
+    } else {
+      $('f-custom-subject').value = '';
+    }
     $('f-week').value       = course.week;
     $('f-status').value     = course.status;
     $('f-progress').value   = course.progress;
@@ -1082,6 +992,7 @@ function openModal(editId = null) {
     $('f-week').value   = activeWeek;
     $('f-status').value = 'default';
     $('f-custom-subject').value = '';
+    $('f-emoji-pick-btn').textContent = '📚';
     $('custom-subject-group').style.display = 'none';
     resetColorSwatches();
     if (activeSubject !== 'all') $('f-subject').value = activeSubject;
@@ -1107,9 +1018,20 @@ async function handleFormSubmit(e) {
   const subjectSelect = $('f-subject').value;
   let subject = subjectSelect;
   let color   = null;
-  if (!SUBJECTS[subjectSelect]) {
-    const subjects = computeUserSubjects();
-    color = subjects[subjectSelect]?.color || null;
+  if (subjectSelect === 'custom') {
+    const subjectText = $('f-custom-subject').value.trim();
+    if (!subjectText) { $('f-custom-subject').focus(); return; }
+    const subjectEmoji = $('f-emoji-pick-btn').textContent.trim();
+    subject = subjectEmoji + ' ' + subjectText;
+    color = $('f-custom-color').value || CUSTOM_COLORS[0];
+    // 직접 입력 과목을 설정 과목관리에 자동 등록
+    if (!userSettings.customSubjects.extras) userSettings.customSubjects.extras = [];
+    if (!userSettings.customSubjects.extras.some(e => e.key === subject)) {
+      userSettings.customSubjects.extras.push({ key: subject, label: subject });
+      if (!userSettings.customSubjects.order) userSettings.customSubjects.order = [];
+      if (!userSettings.customSubjects.order.includes(subject)) userSettings.customSubjects.order.push(subject);
+      await saveCustomSubjects();
+    }
   }
   const startDate = $('f-start-date').value;
   const endDate   = $('f-end-date').value;
@@ -1169,31 +1091,6 @@ function resetColorSwatches(selectedColor) {
   document.querySelectorAll('#color-swatches .color-swatch').forEach(s => {
     s.classList.toggle('selected', s.dataset.color === target);
   });
-}
-
-function initNewSubjectColorSwatches() {
-  const dropdown = $('color-picker-dropdown');
-  const dot      = $('color-pick-dot');
-  const hidden   = $('new-subject-color');
-  if (!dropdown) return;
-  dropdown.innerHTML = '';
-  CUSTOM_COLORS.forEach((color, i) => {
-    const div = document.createElement('div');
-    div.className = `color-swatch${i === 0 ? ' selected' : ''}`;
-    div.style.background = color;
-    div.dataset.color = color;
-    div.addEventListener('click', e => {
-      e.stopPropagation();
-      dropdown.querySelectorAll('.color-swatch').forEach(s => s.classList.remove('selected'));
-      div.classList.add('selected');
-      hidden.value = color;
-      if (dot) dot.style.background = color;
-      dropdown.classList.remove('open');
-    });
-    dropdown.appendChild(div);
-  });
-  hidden.value = CUSTOM_COLORS[0];
-  if (dot) dot.style.background = CUSTOM_COLORS[0];
 }
 
 /* =============================================================
@@ -1572,16 +1469,13 @@ function computeUserSubjects() {
   const hidden = userSettings.customSubjects.hidden || [];
   const extras = userSettings.customSubjects.extras || [];
   const result = {};
-  const overrides = userSettings.customSubjects.labelOverrides || {};
   getSubjectOrder().forEach(key => {
     if (hidden.includes(key)) return;
     if (SUBJECTS[key]) {
-      result[key] = overrides[key]
-        ? { ...SUBJECTS[key], label: overrides[key] }
-        : SUBJECTS[key];
+      result[key] = SUBJECTS[key];
     } else {
       const ex = extras.find(e => e.key === key);
-      if (ex) result[key] = { label: ex.label, cls: 'custom', color: ex.color || null };
+      if (ex) result[key] = { label: ex.label, cls: 'custom' };
     }
   });
   return result;
@@ -1624,7 +1518,7 @@ function populateSubjectSelect() {
   const subjects = computeUserSubjects();
   sel.innerHTML = Object.entries(subjects).map(([key, val]) =>
     `<option value="${key}">${val.label}</option>`
-  ).join('');
+  ).join('') + `<option value="custom">✏️ 직접 입력</option>`;
 }
 
 function openSettingsModal() {
@@ -1638,8 +1532,7 @@ function openSettingsModal() {
   $('subject-msg').textContent = '';
   applyTheme(userSettings.theme);
   renderSubjectManageList();
-  initNewSubjectColorSwatches();
-  switchSettingsTab('info');
+  switchSettingsTab('layout');
   $('settings-overlay').classList.add('open');
 }
 
@@ -1706,31 +1599,22 @@ function setSubjectMsg(text, type = 'done') {
 function renderSubjectManageList() {
   const list = $('subject-manage-list');
   if (!list) return;
-  const hidden    = userSettings.customSubjects.hidden || [];
-  const extras    = userSettings.customSubjects.extras || [];
-  const overrides = userSettings.customSubjects.labelOverrides || {};
+  const hidden = userSettings.customSubjects.hidden || [];
+  const extras = userSettings.customSubjects.extras || [];
 
   const orderedKeys = getSubjectOrder();
   const items = orderedKeys.map(key => {
     const isDefault = !!SUBJECTS[key];
     const isHidden  = hidden.includes(key);
-    const rawLabel  = isDefault
-      ? (overrides[key] || SUBJECTS[key].label)
-      : (extras.find(e => e.key === key)?.label || key);
-    const { emoji, text } = parseSubjectLabel(rawLabel);
-    const color = getSubjectColor(key);
-    const toggleBtn = isDefault
+    const label     = isDefault ? SUBJECTS[key].label : (extras.find(e => e.key === key)?.label || key);
+    const btns = isDefault
       ? `<button class="btn btn--ghost" style="font-size:0.78rem;padding:4px 10px;color:${isHidden ? 'var(--done)' : 'var(--delayed)'}" data-toggle="${key}">${isHidden ? '복구' : '삭제'}</button>`
-      : `<button class="btn btn--ghost" style="font-size:0.78rem;padding:4px 10px;color:var(--delayed)" data-delete="${key}">삭제</button>`;
+      : `<button class="btn btn--ghost" style="font-size:0.78rem;padding:4px 10px" data-edit="${key}">수정</button>
+         <button class="btn btn--ghost" style="font-size:0.78rem;padding:4px 10px;color:var(--delayed)" data-delete="${key}">삭제</button>`;
     return `<div class="subject-manage-item${isHidden ? ' subject-manage-item--hidden' : ''}" draggable="true" data-key="${key}">
       <span class="subject-drag-handle">⠿</span>
-      <span class="subject-item-emoji">${esc(emoji)}</span>
-      <span class="subject-item-color-dot" style="background:${esc(color)}"></span>
-      <span class="subject-manage-item__label">${esc(text)}</span>
-      <div class="subject-manage-item__btns">
-        <button class="btn btn--ghost" style="font-size:0.78rem;padding:4px 10px" data-edit-subject="${key}">수정</button>
-        ${toggleBtn}
-      </div>
+      <span class="subject-manage-item__label" id="slabel-${key}">${esc(label)}</span>
+      ${btns}
     </div>`;
   }).join('');
 
@@ -1739,15 +1623,6 @@ function renderSubjectManageList() {
   inner.innerHTML = items;
   list.innerHTML = '';
   list.appendChild(inner);
-
-  // 수정 (공통)
-  inner.querySelectorAll('[data-edit-subject]').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const key  = btn.dataset.editSubject;
-      const item = inner.querySelector(`.subject-manage-item[data-key="${key}"]`);
-      if (item) activateSubjectEdit(item, key);
-    });
-  });
 
   // 토글(삭제/복구)
   inner.querySelectorAll('[data-toggle]').forEach(btn => {
@@ -1759,6 +1634,27 @@ function renderSubjectManageList() {
       await saveCustomSubjects();
       renderSubjectManageList();
       setSubjectMsg('저장됐어요!');
+    });
+  });
+
+  // 수정
+  inner.querySelectorAll('[data-edit]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const key = btn.dataset.edit;
+      const ex  = userSettings.customSubjects.extras.find(e => e.key === key);
+      if (!ex) return;
+      const labelEl = $(`slabel-${key}`);
+      labelEl.innerHTML = `<input type="text" class="form-input" style="font-size:0.82rem;padding:4px 8px;height:auto" value="${esc(ex.label)}" maxlength="20" id="sedit-${key}">`;
+      btn.textContent = '저장';
+      delete btn.dataset.edit;
+      btn.addEventListener('click', async () => {
+        const newLabel = $(`sedit-${key}`)?.value.trim();
+        if (!newLabel) return;
+        ex.label = newLabel;
+        await saveCustomSubjects();
+        renderSubjectManageList();
+        setSubjectMsg('수정됐어요!');
+      }, { once: true });
     });
   });
 
@@ -1810,117 +1706,18 @@ function renderSubjectManageList() {
   });
 }
 
-function activateSubjectEdit(item, key) {
-  const isDefault = !!SUBJECTS[key];
-  const extras    = userSettings.customSubjects.extras || [];
-  const overrides = userSettings.customSubjects.labelOverrides || {};
-  const rawLabel  = isDefault
-    ? (overrides[key] || SUBJECTS[key].label)
-    : (extras.find(e => e.key === key)?.label || key);
-  const { emoji, text } = parseSubjectLabel(rawLabel);
-  const color = getSubjectColor(key);
-
-  const emojiList = ['📚','📖','📝','✏️','📐','📏','🔬','🔭','🧪','🧬','💻','🖥️','📊','📈','🧮','🎯','🏆','🎓','🏫','📋','⚡','📡','📶','🔧','⚙️','🔑','💡','🧠','🌐','🎵'];
-  const swatchesHtml = CUSTOM_COLORS.map(c =>
-    `<div class="color-swatch${c === color ? ' selected' : ''}" data-color="${c}" style="background:${c}"></div>`
-  ).join('');
-
-  item.draggable = false;
-  item.innerHTML = `
-    <span class="subject-drag-handle" style="opacity:0.3">⠿</span>
-    <div class="emoji-picker-wrap">
-      <button type="button" class="emoji-pick-btn" id="sedit-ebtn-${key}">${esc(emoji) || '📚'}</button>
-      <div class="emoji-picker-dropdown" id="sedit-edd-${key}">${emojiList.map(e => `<span>${e}</span>`).join('')}</div>
-    </div>
-    <div class="color-picker-wrap">
-      <button type="button" class="color-pick-btn" id="sedit-cbtn-${key}">
-        <span class="color-pick-dot" id="sedit-cdot-${key}" style="background:${color}"></span>
-      </button>
-      <div class="color-picker-dropdown" id="sedit-cdd-${key}">${swatchesHtml}</div>
-    </div>
-    <input type="hidden" id="sedit-cval-${key}" value="${color}">
-    <input type="text" class="form-input" id="sedit-text-${key}" style="font-size:0.82rem;padding:4px 8px;height:auto;flex:1;min-width:0" value="${esc(text)}" maxlength="20">
-    <button type="button" class="btn btn--primary" style="font-size:0.78rem;padding:4px 10px;flex-shrink:0" id="sedit-save-${key}">저장</button>
-    <button type="button" class="btn btn--ghost" style="font-size:0.78rem;padding:4px 10px;flex-shrink:0" id="sedit-cancel-${key}">취소</button>
-  `;
-
-  const eBtn = $(`sedit-ebtn-${key}`);
-  const eDd  = $(`sedit-edd-${key}`);
-  eBtn.addEventListener('click', e => {
-    e.stopPropagation();
-    const r = eBtn.getBoundingClientRect();
-    eDd.style.left = r.left + 'px';
-    eDd.style.top  = (r.top - 8) + 'px';
-    eDd.style.transform = 'translateY(-100%)';
-    eDd.classList.toggle('open');
-  });
-  eDd.addEventListener('click', e => {
-    const em = e.target.textContent.trim();
-    if (!em) return;
-    eBtn.textContent = em;
-    eDd.classList.remove('open');
-  });
-
-  const cBtn = $(`sedit-cbtn-${key}`);
-  const cDd  = $(`sedit-cdd-${key}`);
-  const cDot = $(`sedit-cdot-${key}`);
-  const cVal = $(`sedit-cval-${key}`);
-  cBtn.addEventListener('click', e => {
-    e.stopPropagation();
-    const r = cBtn.getBoundingClientRect();
-    cDd.style.left = r.left + 'px';
-    cDd.style.top  = (r.top - 8) + 'px';
-    cDd.style.transform = 'translateY(-100%)';
-    cDd.classList.toggle('open');
-  });
-  cDd.querySelectorAll('.color-swatch').forEach(sw => {
-    sw.addEventListener('click', e => {
-      e.stopPropagation();
-      cDd.querySelectorAll('.color-swatch').forEach(s => s.classList.remove('selected'));
-      sw.classList.add('selected');
-      cVal.value = sw.dataset.color;
-      cDot.style.background = sw.dataset.color;
-      cDd.classList.remove('open');
-    });
-  });
-
-  $(`sedit-save-${key}`).addEventListener('click', async () => {
-    const newEmoji = eBtn.textContent.trim();
-    const newText  = $(`sedit-text-${key}`).value.trim();
-    const newColor = cVal.value;
-    if (!newText) return;
-    const newLabel = newEmoji ? `${newEmoji} ${newText}` : newText;
-    if (isDefault) {
-      if (!userSettings.customSubjects.labelOverrides) userSettings.customSubjects.labelOverrides = {};
-      userSettings.customSubjects.labelOverrides[key] = newLabel;
-      if (!userSettings.customSubjects.colorOverrides) userSettings.customSubjects.colorOverrides = {};
-      userSettings.customSubjects.colorOverrides[key] = newColor;
-    } else {
-      const ex = userSettings.customSubjects.extras.find(e => e.key === key);
-      if (ex) { ex.label = newLabel; ex.color = newColor; }
-    }
-    await saveCustomSubjects();
-    renderSubjectManageList();
-    setSubjectMsg('수정됐어요!');
-  });
-
-  $(`sedit-cancel-${key}`).addEventListener('click', () => renderSubjectManageList());
-}
-
 async function addCustomSubject() {
   const input = $('new-subject-input');
   const label = input.value.trim();
   const msg   = $('subject-msg');
   if (!label) return;
   const emoji = $('emoji-pick-btn').textContent.trim();
-  const color = $('new-subject-color').value || CUSTOM_COLORS[0];
   const key   = 'custom_' + Date.now();
-  userSettings.customSubjects.extras.push({ key, label: emoji + ' ' + label, color });
+  userSettings.customSubjects.extras.push({ key, label: emoji + ' ' + label });
   if (!userSettings.customSubjects.order) userSettings.customSubjects.order = [];
   userSettings.customSubjects.order.push(key);
   input.value = '';
   $('emoji-pick-btn').textContent = '📚';
-  initNewSubjectColorSwatches(); // 색상 선택도 초기화
   await saveCustomSubjects();
   renderSubjectManageList();
   msg.style.color = 'var(--done)'; msg.textContent = '과목이 추가됐어요!';
@@ -1945,7 +1742,6 @@ function openWeekSettingModal() {
   $('week-start-input').value  = fmtDate(userWeekStart);
   $('week-range-from').value   = visibleWeekRange.from;
   $('week-range-to').value     = visibleWeekRange.to;
-  $('week-range-btns-toggle').checked = showWeekRangeBtns;
   $('week-setting-overlay').classList.add('open');
 }
 
@@ -1981,8 +1777,6 @@ async function saveWeekSetting() {
   userWeekStart = new Date(val);
   visibleWeekRange = { from: fromVal, to: toVal };
   saveWeekRange();
-  showWeekRangeBtns = $('week-range-btns-toggle').checked;
-  saveShowWeekRangeBtns();
   activeWeek = detectWeekFromDate(todayStr);
   closeWeekSettingModal();
   renderSchedule();
@@ -2102,21 +1896,24 @@ function bindEvents() {
     $('emoji-pick-btn').textContent = emoji;
     $('emoji-picker-dropdown').classList.remove('open');
   });
-
-  // 색상 피커
-  $('color-pick-btn').addEventListener('click', e => {
+  $('f-emoji-pick-btn').addEventListener('click', e => {
     e.stopPropagation();
-    const dropdown = $('color-picker-dropdown');
-    const rect = $('color-pick-btn').getBoundingClientRect();
+    const dropdown = $('f-emoji-picker-dropdown');
+    const rect = $('f-emoji-pick-btn').getBoundingClientRect();
     dropdown.style.left = rect.left + 'px';
     dropdown.style.top  = (rect.top - 8) + 'px';
     dropdown.style.transform = 'translateY(-100%)';
     dropdown.classList.toggle('open');
   });
-
+  $('f-emoji-picker-dropdown').addEventListener('click', e => {
+    const emoji = e.target.textContent.trim();
+    if (!emoji) return;
+    $('f-emoji-pick-btn').textContent = emoji;
+    $('f-emoji-picker-dropdown').classList.remove('open');
+  });
   document.addEventListener('click', () => {
-    document.querySelectorAll('.emoji-picker-dropdown.open, .color-picker-dropdown.open')
-      .forEach(el => el.classList.remove('open'));
+    $('emoji-picker-dropdown')?.classList.remove('open');
+    $('f-emoji-picker-dropdown')?.classList.remove('open');
   });
 
   // 달력 클릭 (이벤트 바 or 날짜 셀)
@@ -2178,9 +1975,6 @@ function bindEvents() {
     if (e.target === $('daily-check-overlay')) closeDailyCheckModal();
   });
 
-  // 전체 보기 탭
-  $('week-all-btn').addEventListener('click', () => { activeWeek = 0; renderSchedule(); });
-
   // 주차 슬라이드 (데스크톱 화살표 — 모바일에선 CSS로 숨김)
   $('week-prev').addEventListener('click', () => { $('week-tabs').scrollLeft -= 200; });
   $('week-next').addEventListener('click', () => { $('week-tabs').scrollLeft += 200; });
@@ -2227,6 +2021,12 @@ function bindEvents() {
     });
   });
 
+  // 과목 직접 입력 토글
+  $('f-subject').addEventListener('change', () => {
+    const isCustom = $('f-subject').value === 'custom';
+    $('custom-subject-group').style.display = isCustom ? '' : 'none';
+    if (isCustom) { resetColorSwatches(); $('f-custom-subject').focus(); }
+  });
 
   // 모달
   $('open-modal-btn').addEventListener('click', () => openModal());
