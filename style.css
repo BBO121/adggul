@@ -1013,6 +1013,7 @@ body {
   justify-content: center;
   z-index: 999;
   padding: 16px;
+  overflow-y: auto;
 }
 .auth-screen.hidden { display: none; }
 
@@ -1085,6 +1086,17 @@ body {
 /* ── 모바일 (≤640px) ── */
 @media (max-width: 640px) {
   :root { --sidebar-w: 0px; }
+
+  /* 인증 화면: 키보드 올라와도 스크롤 가능하도록 상단 정렬 */
+  .auth-screen {
+    align-items: flex-start;
+    padding: 40px 16px 24px;
+  }
+  .auth-card {
+    max-width: 100%;
+    padding: 24px 20px;
+    gap: 16px;
+  }
 
   /* 사이드바 → 하단 탭 바 */
   .sidebar {
