@@ -447,8 +447,11 @@ function parseSubjectEmoji(str) {
 function subjectBadge(subject, color) {
   const info = SUBJECTS[subject];
   if (info) return `<span class="subject-badge subject-badge--${info.cls}">${info.label}</span>`;
+  const extras = (userSettings?.customSubjects?.extras) || [];
+  const custom = extras.find(e => e.key === subject);
+  const label = custom ? custom.label : subject;
   const c = color || '#94a3b8';
-  return `<span class="subject-badge" style="background:${c}26;color:${c};border:1px solid ${c}4d">${esc(subject)}</span>`;
+  return `<span class="subject-badge" style="background:${c}26;color:${c};border:1px solid ${c}4d">${esc(label)}</span>`;
 }
 
 /* =============================================================
