@@ -687,8 +687,13 @@ function buildEventBars(weekCourses, weekStart, weekEnd) {
   const weekEndStr   = fmtDate(weekEnd);
   return Object.entries(bySubject).map(([subject, info], idx) => {
     const subjectInfo = SUBJECTS[subject];
-    const icon    = subjectInfo ? subjectInfo.label.split(' ')[0] : '';
-    const name    = subjectInfo ? subjectInfo.label.split(' ').slice(1).join(' ') : subject;
+    const extras = userSettings?.customSubjects?.extras || [];
+    const customEntry = !subjectInfo ? extras.find(e => e.key === subject) : null;
+    const displayLabel = subjectInfo
+      ? subjectInfo.label
+      : (customEntry ? customEntry.label : subject);
+    const icon    = subjectInfo ? displayLabel.split(' ')[0] : '';
+    const name    = subjectInfo ? displayLabel.split(' ').slice(1).join(' ') : displayLabel;
     const allDone = info.done === info.total;
     const countLabel = Array.from({ length: info.total }, (_, i) => i < info.done ? '👏' : '◻️').join('');
     const isFirstWeek = !info.minStart || info.minStart >= weekStartStr;
