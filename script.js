@@ -1241,7 +1241,8 @@ async function bulkShiftWeeks(userId, fromWeekStart, fromWeekEnd, toWeek) {
   const data = (allData || []).filter(row => row.week >= fromWeekStart && row.week <= fromWeekEnd);
   if (data.length === 0) { msgEl.style.color = 'var(--muted)'; msgEl.textContent = '해당 주차에 스케줄이 없습니다.'; return; }
 
-  const updates = data.map(row => {
+  // saveCourse와 동일하게 upsert 사용 (RLS 우회)
+  const upserts = data.map(row => {
     const weekDiff = toWeek - row.week;
     const newStart = row.start_date
       ? fmtDate(new Date(new Date(row.start_date).getTime() + weekDiff * 7 * 86400000))
@@ -1249,20 +1250,31 @@ async function bulkShiftWeeks(userId, fromWeekStart, fromWeekEnd, toWeek) {
     const newEnd = row.end_date
       ? fmtDate(new Date(new Date(row.end_date).getTime() + weekDiff * 7 * 86400000))
       : row.end_date;
-    return { id: row.id, week: toWeek, start_date: newStart, end_date: newEnd };
+    return {
+      id:         row.id,
+      user_id:    userId,
+      subject:    row.subject    || null,
+      name:       row.name       || '',
+      week:       toWeek,
+      status:     row.status     || 'default',
+      progress:   row.progress   || '',
+      duration:   row.duration   || '',
+      start_date: newStart,
+      end_date:   newEnd,
+      color:      row.color      || null,
+    };
   });
 
-  let successCount = 0;
-  for (const upd of updates) {
-    const { error: updErr } = await sb
-      .from('courses')
-      .update({ week: upd.week, start_date: upd.start_date, end_date: upd.end_date })
-      .eq('id', upd.id);
-    if (!updErr) successCount++;
+  const { error: upsertErr } = await sb.from('courses').upsert(upserts);
+
+  if (upsertErr) {
+    msgEl.style.color   = 'var(--danger)';
+    msgEl.textContent   = '오류: ' + upsertErr.message;
+    return;
   }
 
-  msgEl.style.color   = successCount === updates.length ? 'var(--done)' : 'var(--danger)';
-  msgEl.textContent   = `완료: ${successCount}/${updates.length}개 항목 이동됨`;
+  msgEl.style.color   = 'var(--done)';
+  msgEl.textContent   = `완료: ${upserts.length}개 항목 이동됨`;
 }
 
 /* =============================================================
