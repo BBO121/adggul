@@ -1128,15 +1128,15 @@ async function renderAdminUsers() {
       <td>${profile.is_admin ? '<span style="color:var(--muted)">-</span>' : total}</td>
       <td style="color:var(--done)">${profile.is_admin ? '<span style="color:var(--muted)">-</span>' : done}</td>
       <td>${profile.is_admin ? '<span style="color:var(--muted)">-</span>' : rate + '%'}</td>
-      <td style="display:flex;gap:6px;flex-wrap:wrap">
-        ${!profile.is_admin ? `<button class="btn btn--ghost" style="font-size:0.8rem;padding:5px 12px"
+      <td>
+        ${!profile.is_admin ? `<div style="display:flex;gap:6px;flex-wrap:wrap"><button class="btn btn--ghost" style="font-size:0.8rem;padding:5px 12px"
           data-view-user="${profile.id}" data-view-email="${esc(profile.email||'')}">
           스케줄 보기
         </button>
         <button class="btn btn--ghost" style="font-size:0.8rem;padding:5px 12px"
           data-shift-user="${profile.id}" data-shift-email="${esc(profile.email||'')}">
           주차 이동
-        </button>` : ''}
+        </button></div>` : ''}
       </td>
     </tr>`;
   }).join('');
