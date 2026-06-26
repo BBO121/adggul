@@ -570,6 +570,41 @@
   </div>
 </div>
 
+<!-- ===================== 주차 이동 모달 ===================== -->
+<div class="modal-overlay" id="week-shift-overlay">
+  <div class="modal">
+    <div class="modal__header">
+      <h2 class="modal__title">📦 주차 이동</h2>
+      <button class="modal__close" id="week-shift-close-btn">✕</button>
+    </div>
+    <div class="modal__form">
+      <p id="week-shift-user-label" style="color:var(--muted);margin-bottom:16px;font-size:0.9rem"></p>
+      <div style="display:flex;gap:12px;align-items:flex-end">
+        <div class="form-group" style="flex:1;margin-bottom:0">
+          <label class="form-label">이동할 주차 (시작)</label>
+          <input type="number" class="form-input" id="week-shift-from" min="1" max="24" value="4">
+        </div>
+        <span style="padding-bottom:10px;color:var(--muted)">~</span>
+        <div class="form-group" style="flex:1;margin-bottom:0">
+          <label class="form-label">이동할 주차 (끝)</label>
+          <input type="number" class="form-input" id="week-shift-to-range" min="1" max="24" value="4">
+        </div>
+        <span style="padding-bottom:10px;color:var(--muted)">→</span>
+        <div class="form-group" style="flex:1;margin-bottom:0">
+          <label class="form-label">목표 주차</label>
+          <input type="number" class="form-input" id="week-shift-target" min="1" max="24" value="7">
+        </div>
+      </div>
+      <p id="week-shift-preview" style="margin-top:14px;color:var(--muted);font-size:0.85rem"></p>
+      <p id="week-shift-msg" style="margin-top:8px;font-size:0.85rem;color:var(--done)"></p>
+    </div>
+    <div class="modal__actions">
+      <button class="btn btn--ghost" id="week-shift-cancel-btn">취소</button>
+      <button class="btn btn--primary" id="week-shift-confirm-btn">이동 실행</button>
+    </div>
+  </div>
+</div>
+
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="script.js"></script>
 </body>

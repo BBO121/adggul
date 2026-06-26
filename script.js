@@ -1128,10 +1128,14 @@ async function renderAdminUsers() {
       <td>${profile.is_admin ? '<span style="color:var(--muted)">-</span>' : total}</td>
       <td style="color:var(--done)">${profile.is_admin ? '<span style="color:var(--muted)">-</span>' : done}</td>
       <td>${profile.is_admin ? '<span style="color:var(--muted)">-</span>' : rate + '%'}</td>
-      <td>
+      <td style="display:flex;gap:6px;flex-wrap:wrap">
         ${!profile.is_admin ? `<button class="btn btn--ghost" style="font-size:0.8rem;padding:5px 12px"
           data-view-user="${profile.id}" data-view-email="${esc(profile.email||'')}">
           스케줄 보기
+        </button>
+        <button class="btn btn--ghost" style="font-size:0.8rem;padding:5px 12px"
+          data-shift-user="${profile.id}" data-shift-email="${esc(profile.email||'')}">
+          주차 이동
         </button>` : ''}
       </td>
     </tr>`;
@@ -1150,6 +1154,14 @@ async function renderAdminUsers() {
       showAdminBanner(email.replace('@suran.app', ''));
       switchView('schedule');
       renderSchedule();
+    });
+  });
+
+  tbody.querySelectorAll('[data-shift-user]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const uid   = btn.dataset.shiftUser;
+      const email = btn.dataset.shiftEmail;
+      openWeekShiftModal(uid, email);
     });
   });
 }
@@ -1185,7 +1197,78 @@ function showAdminBanner(email) {
 }
 
 /* =============================================================
-   12-b. 버그 리포트 UI
+   12-b. 주차 이동 (어드민)
+============================================================= */
+let weekShiftTargetUserId   = null;
+let weekShiftTargetEmail    = '';
+
+function openWeekShiftModal(uid, email) {
+  weekShiftTargetUserId = uid;
+  weekShiftTargetEmail  = email;
+  const name = email.replace('@suran.app', '');
+  $('week-shift-user-label').textContent = `대상 계정: ${name}`;
+  $('week-shift-from').value      = '4';
+  $('week-shift-to-range').value  = '4';
+  $('week-shift-target').value    = '7';
+  $('week-shift-msg').textContent = '';
+  updateWeekShiftPreview();
+  $('week-shift-overlay').classList.add('open');
+}
+
+function closeWeekShiftModal() {
+  $('week-shift-overlay').classList.remove('open');
+  weekShiftTargetUserId = null;
+}
+
+function updateWeekShiftPreview() {
+  const from   = parseInt($('week-shift-from').value)     || 1;
+  const toRng  = parseInt($('week-shift-to-range').value) || from;
+  const target = parseInt($('week-shift-target').value)   || 1;
+  $('week-shift-preview').textContent =
+    `${from}주차${from !== toRng ? `~${toRng}주차` : ''} 스케줄 → ${target}주차로 이동 (날짜도 자동 조정)`;
+}
+
+async function bulkShiftWeeks(userId, fromWeekStart, fromWeekEnd, toWeek) {
+  const msgEl = $('week-shift-msg');
+  msgEl.style.color   = 'var(--muted)';
+  msgEl.textContent   = '불러오는 중...';
+
+  const { data, error } = await sb
+    .from('courses')
+    .select('id, week, start_date, end_date')
+    .eq('user_id', userId)
+    .gte('week', fromWeekStart)
+    .lte('week', fromWeekEnd);
+
+  if (error) { msgEl.style.color = 'var(--danger)'; msgEl.textContent = '오류: ' + error.message; return; }
+  if (!data || data.length === 0) { msgEl.style.color = 'var(--muted)'; msgEl.textContent = '해당 주차에 스케줄이 없습니다.'; return; }
+
+  const updates = data.map(row => {
+    const weekDiff = toWeek - row.week;
+    const newStart = row.start_date
+      ? fmtDate(new Date(new Date(row.start_date).getTime() + weekDiff * 7 * 86400000))
+      : row.start_date;
+    const newEnd = row.end_date
+      ? fmtDate(new Date(new Date(row.end_date).getTime() + weekDiff * 7 * 86400000))
+      : row.end_date;
+    return { id: row.id, week: toWeek, start_date: newStart, end_date: newEnd };
+  });
+
+  let successCount = 0;
+  for (const upd of updates) {
+    const { error: updErr } = await sb
+      .from('courses')
+      .update({ week: upd.week, start_date: upd.start_date, end_date: upd.end_date })
+      .eq('id', upd.id);
+    if (!updErr) successCount++;
+  }
+
+  msgEl.style.color   = successCount === updates.length ? 'var(--done)' : 'var(--danger)';
+  msgEl.textContent   = `완료: ${successCount}/${updates.length}개 항목 이동됨`;
+}
+
+/* =============================================================
+   12-c. 버그 리포트 UI
 ============================================================= */
 function openBugReportModal() {
   $('bug-report-form').reset();
@@ -2044,6 +2127,24 @@ function bindEvents() {
     if (e.target === $('modal-overlay')) closeModal();
   });
   $('course-form').addEventListener('submit', handleFormSubmit);
+
+  // 주차 이동 모달
+  $('week-shift-close-btn').addEventListener('click', closeWeekShiftModal);
+  $('week-shift-cancel-btn').addEventListener('click', closeWeekShiftModal);
+  $('week-shift-overlay').addEventListener('click', e => {
+    if (e.target === $('week-shift-overlay')) closeWeekShiftModal();
+  });
+  ['week-shift-from', 'week-shift-to-range', 'week-shift-target'].forEach(id => {
+    $(id).addEventListener('input', updateWeekShiftPreview);
+  });
+  $('week-shift-confirm-btn').addEventListener('click', async () => {
+    const from   = parseInt($('week-shift-from').value)     || 1;
+    const toRng  = parseInt($('week-shift-to-range').value) || from;
+    const target = parseInt($('week-shift-target').value)   || 1;
+    if (!weekShiftTargetUserId) return;
+    if (!confirm(`${weekShiftTargetEmail.replace('@suran.app','')} 계정의 ${from}~${toRng}주차 스케줄을 ${target}주차로 이동할까요?`)) return;
+    await bulkShiftWeeks(weekShiftTargetUserId, from, toRng, target);
+  });
 
   // 버그 리포트 플로팅 버튼
   $('bug-fab').addEventListener('click', openBugReportModal);
