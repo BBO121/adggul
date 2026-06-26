@@ -1233,15 +1233,13 @@ async function bulkShiftWeeks(userId, fromWeekStart, fromWeekEnd, toWeek) {
   msgEl.style.color   = 'var(--muted)';
   msgEl.textContent   = '불러오는 중...';
 
-  const { data, error } = await sb
-    .from('courses')
-    .select('id, week, start_date, end_date')
-    .eq('user_id', userId)
-    .gte('week', fromWeekStart)
-    .lte('week', fromWeekEnd);
+  // 어드민은 직접 SELECT 불가(RLS) → RPC 사용
+  const { data: allData, error } = await sb.rpc('get_courses_for_user', { target_user_id: userId });
 
   if (error) { msgEl.style.color = 'var(--danger)'; msgEl.textContent = '오류: ' + error.message; return; }
-  if (!data || data.length === 0) { msgEl.style.color = 'var(--muted)'; msgEl.textContent = '해당 주차에 스케줄이 없습니다.'; return; }
+
+  const data = (allData || []).filter(row => row.week >= fromWeekStart && row.week <= fromWeekEnd);
+  if (data.length === 0) { msgEl.style.color = 'var(--muted)'; msgEl.textContent = '해당 주차에 스케줄이 없습니다.'; return; }
 
   const updates = data.map(row => {
     const weekDiff = toWeek - row.week;
